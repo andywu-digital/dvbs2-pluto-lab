@@ -5,7 +5,6 @@ clear all;
 %=========================================================%
 % Load LDPCParityMatrices
 %=========================================================%
-
 if ~exist('dvbs2xLDPCParityMatrices.mat','file')
     if ~exist('s2xLDPCParityMatrices.zip','file')
         url = 'https://ssd.mathworks.com/supportfiles/spc/satcom/DVB/s2xLDPCParityMatrices.zip';
@@ -27,17 +26,30 @@ txsim.RadioGain = 0;
 %=========================================================%
 wg = dvbs2WaveformGenerator;
 wg.FECFrame = "short";
-wg.MODCOD = 18;                               
+wg.MODCOD = 24;                               
 wg.DFL = getDFL(wg.MODCOD,wg.FECFrame);       % Default DFL is Kbch-80
 wg.SamplesPerSymbol = 1;
-
 wg.StreamFormat = "GS";
-wg.UPL = 8568;
+
+%=========================================================%
+% DVB-S2 Image Setup
+%=========================================================%
+%=============== image ===============%
+% img = imread('imag/dog.jpg');
+% weight = size(img, 2);
+% height = size(img, 1);
+% bitstream = pic2bitstream(img);
+%============== video ===============%
+video = VideoReader("video/20250717_2345_Pixel Pup Joy_simple_compose_01k0cgzma6e83s0z7kebf8j6qm.mp4");
+[bitstream, weight, height] = video2bitstream(video, 0.05);
+
+wg.UPL = wg.DFL;
+wg.UPL = floor(wg.UPL/24)*24 -15;
+numFrames = ceil(length(bitstream)/(wg.UPL-9));                                          
 
 %=========================================================%
 % Generate Input Data
 %=========================================================%
-numFrames = 48;                                           % Number of PL frames to be processed
 rng("default")
 
 if strcmpi(wg.StreamFormat,"TS")
@@ -46,7 +58,7 @@ if strcmpi(wg.StreamFormat,"TS")
 else
     if wg.UPL
         syncBits = randi([0 1],8,1);
-        pktLen = wg.UPL - 8;                              % UP length without sync byte
+        pktLen = wg.UPL - 9;                              % UP length without sync byte
     end
 end
 
@@ -55,14 +67,14 @@ if strcmpi(wg.StreamFormat,"GS") && wg.UPL == 0
     numBits = wg.DFL*numFrames;
     data = randi([0 1],numBits,1);
 else % For TS and GS packetized streams
-    numPkts = wg.MinNumPackets*numFrames;
+    numPkts = wg.MinNumPackets*numFrames; 
     %txRawPkts = randi([0 1],pktLen,numPkts);
     %txRawPkts = ones(pktLen,numPkts);
-    load("pic.mat");
     pic_bitstream = [bitstream; zeros(pktLen*numPkts-length(bitstream), 1)];
-    txRawPkts = reshape(pic_bitstream, pktLen, numPkts);
+    SOF = [reshape(dec2bin(weight, 12) - '0', [], 1); reshape(dec2bin(height, 12) - '0', [], 1); zeros(pktLen-24, 1)];
+    txRawPkts = [SOF reshape(pic_bitstream, pktLen, numPkts)];
 
-    txPkts = [repmat(syncBits,1,numPkts); txRawPkts];
+    txPkts = [repmat(syncBits,1,numPkts+1); [1 zeros(1, numPkts)]; txRawPkts];
     data = txPkts(:);
 end
 
